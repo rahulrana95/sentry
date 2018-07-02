@@ -61,7 +61,13 @@ class Search extends React.Component {
   handleSelect = (item, state) => {
     if (!item) return;
 
-    let {to} = item;
+    let {to, action} = item;
+
+    if (action) {
+      action(item);
+      return;
+    }
+
     if (!to) return;
 
     let {params, router} = this.props;
