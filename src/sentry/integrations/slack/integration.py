@@ -3,9 +3,11 @@ from __future__ import absolute_import
 from django.utils.translation import ugettext_lazy as _
 
 from sentry import http
-from sentry.integrations import IntegrationProvider, IntegrationMetadata
-from sentry.pipeline import NestedPipelineView
 from sentry.identity.pipeline import IdentityProviderPipeline
+from sentry.integrations import (
+    IntegrationFeatures, IntegrationMetadata, IntegrationProvider,
+)
+from sentry.pipeline import NestedPipelineView
 from sentry.utils.http import absolute_uri
 
 DESCRIPTION = """
@@ -19,8 +21,8 @@ Define a relationship between Sentry and your Slack workspace(s).
 """
 
 alert_link = {
-    'text': 'Looking to send Sentry alerts to Slack? Add an **Alert Rule** for this project.',
-    'link': '/settings/{orgId}/{projectId}/alerts/rules/'
+    'text': 'Looking to send Sentry alerts to Slack? Add an **Alert Rule** to a project.',
+    'link': '/settings/:orgId/:projectId/alerts/rules/'
 }
 
 metadata = IntegrationMetadata(
@@ -39,6 +41,10 @@ class SlackIntegrationProvider(IntegrationProvider):
     key = 'slack'
     name = 'Slack'
     metadata = metadata
+    features = frozenset([
+        IntegrationFeatures.NOTIFICATION,
+        IntegrationFeatures.CHAT_UNFURL,
+    ])
 
     identity_oauth_scopes = frozenset([
         'channels:read',

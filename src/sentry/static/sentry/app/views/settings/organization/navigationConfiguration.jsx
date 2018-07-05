@@ -56,7 +56,8 @@ const organizationNavigation = [
       {
         path: `${pathPrefix}/rate-limits/`,
         title: t('Rate Limits'),
-        show: ({access}) => access.has('org:write'),
+        show: ({access, features}) =>
+          features.has('legacy-rate-limits') && access.has('org:write'),
         description: t('Configure rate limits for all projects in the organization'),
       },
       {
@@ -64,6 +65,12 @@ const organizationNavigation = [
         title: t('Repositories'),
         show: ({access}) => access.has('org:write'),
         description: t('Manage repositories connected to the organization'),
+      },
+      {
+        path: `${pathPrefix}/integrations/`,
+        title: t('Integrations'),
+        show: ({access}) => access.has('org:integrations'),
+        description: t('Manage integrations for an organization'),
       },
     ],
   },

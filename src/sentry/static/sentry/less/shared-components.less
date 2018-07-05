@@ -812,7 +812,6 @@ table.integrations {
   &.switch-disabled {
     cursor: not-allowed;
     pointer-events: none;
-    background: @white-darker;
 
     .switch-toggle {
       opacity: 0.4;
@@ -1213,6 +1212,7 @@ table.integrations {
     overflow: auto;
     max-height: 500px;
     white-space: nowrap;
+    overflow: show;
 
     &:before {
       left: 11px;
@@ -1253,7 +1253,6 @@ table.integrations {
 
     li {
       position: relative;
-      padding: 0 5px 0 15px;
 
       &:nth-child(2) {
         margin-top: 5px;
@@ -1271,7 +1270,7 @@ table.integrations {
 
       > a {
         .truncate();
-        padding: 6px 0;
+        padding: 6px 6px 6px 0;
         border-radius: 0;
         line-height: 1;
         border-left: 3px solid transparent;
@@ -1282,17 +1281,19 @@ table.integrations {
 
         &.active,
         &:active {
-          color: @gray-dark;
+          color: @gray-darkest;
+          background: @white-dark;
 
           &:after {
             display: block;
             content: '';
             position: absolute;
             width: 4px;
-            left: 0;
+            left: -1px;
             top: 0;
             bottom: 0;
             background: @purple-light;
+            border-radius: 0 2px 2px 0;
           }
         }
       }
@@ -1606,7 +1607,6 @@ ul.faces {
       max-width: 100%;
       .truncate;
       display: inline-block;
-      line-height: 1;
       vertical-align: text-bottom;
     }
 
@@ -1616,6 +1616,7 @@ ul.faces {
       display: inline;
       margin: 0 0 0 8px;
       color: @gray-light;
+      line-height: 1.2;
 
       &:hover {
         color: @gray;
@@ -2518,7 +2519,11 @@ header + .alert {
     background: inherit;
   }
 
-  &.badge-new {
+  &.strong {
+    background: @blue;
+  }
+
+  &.highlight {
     background: @green;
   }
 }
@@ -2733,6 +2738,12 @@ ul.radio-inputs {
         }
       }
     }
+  }
+}
+
+.custom-resolution-modal {
+  .modal-content {
+    overflow: visible;
   }
 }
 
@@ -2970,8 +2981,7 @@ ul.tag-list {
 }
 
 .client-platform-list,
-.client-platform,
-.org-dashboard-platform-list {
+.client-platform {
   li,
   span {
     &.python .platformicon {

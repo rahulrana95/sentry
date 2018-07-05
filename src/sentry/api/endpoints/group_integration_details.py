@@ -31,7 +31,8 @@ class GroupIntegrationDetailsEndpoint(GroupEndpoint):
         except Integration.DoesNotExist:
             return Response(status=404)
 
-        if not integration.has_feature(IntegrationFeatures.ISSUE_SYNC):
+        if not (integration.has_feature(IntegrationFeatures.ISSUE_BASIC) or integration.has_feature(
+                IntegrationFeatures.ISSUE_SYNC)):
             return Response(
                 {'detail': 'This feature is not supported for this integration.'}, status=400)
 
@@ -41,6 +42,7 @@ class GroupIntegrationDetailsEndpoint(GroupEndpoint):
                 integration,
                 request.user,
                 IntegrationIssueConfigSerializer(group, action, params=request.GET),
+                organization_id=organization_id
             )
         )
 
@@ -60,13 +62,14 @@ class GroupIntegrationDetailsEndpoint(GroupEndpoint):
         except Integration.DoesNotExist:
             return Response(status=404)
 
-        if not integration.has_feature(IntegrationFeatures.ISSUE_SYNC):
+        if not (integration.has_feature(IntegrationFeatures.ISSUE_BASIC) or integration.has_feature(
+                IntegrationFeatures.ISSUE_SYNC)):
             return Response(
                 {'detail': 'This feature is not supported for this integration.'}, status=400)
 
-        installation = integration.get_installation()
+        installation = integration.get_installation(organization_id)
         try:
-            data = installation.get_issue(external_issue_id)
+            data = installation.get_issue(external_issue_id, data=request.DATA)
         except IntegrationError as exc:
             return Response({'detail': exc.message}, status=400)
 
@@ -74,15 +77,19 @@ class GroupIntegrationDetailsEndpoint(GroupEndpoint):
             'title': data.get('title'),
             'description': data.get('description'),
         }
+
+        external_issue_key = installation.make_external_key(data)
         external_issue, created = ExternalIssue.objects.get_or_create(
             organization_id=organization_id,
             integration_id=integration.id,
-            key=external_issue_id,
+            key=external_issue_key,
             defaults=defaults,
         )
 
         if not created:
             external_issue.update(**defaults)
+
+        installation.after_link_issue(external_issue, data=request.DATA)
 
         try:
             with transaction.atomic():
@@ -111,20 +118,22 @@ class GroupIntegrationDetailsEndpoint(GroupEndpoint):
         except Integration.DoesNotExist:
             return Response(status=404)
 
-        if not integration.has_feature(IntegrationFeatures.ISSUE_SYNC):
+        if not (integration.has_feature(IntegrationFeatures.ISSUE_BASIC) or integration.has_feature(
+                IntegrationFeatures.ISSUE_SYNC)):
             return Response(
                 {'detail': 'This feature is not supported for this integration.'}, status=400)
 
-        installation = integration.get_installation()
+        installation = integration.get_installation(organization_id)
         try:
             data = installation.create_issue(request.DATA)
         except IntegrationError as exc:
             return Response({'non_field_errors': exc.message}, status=400)
 
+        external_issue_key = installation.make_external_key(data)
         external_issue = ExternalIssue.objects.get_or_create(
             organization_id=organization_id,
             integration_id=integration.id,
-            key=data['key'],
+            key=external_issue_key,
             defaults={
                 'title': data.get('title'),
                 'description': data.get('description'),
@@ -162,7 +171,8 @@ class GroupIntegrationDetailsEndpoint(GroupEndpoint):
         except Integration.DoesNotExist:
             return Response(status=404)
 
-        if not integration.has_feature(IntegrationFeatures.ISSUE_SYNC):
+        if not (integration.has_feature(IntegrationFeatures.ISSUE_BASIC) or integration.has_feature(
+                IntegrationFeatures.ISSUE_SYNC)):
             return Response(
                 {'detail': 'This feature is not supported for this integration.'}, status=400)
 

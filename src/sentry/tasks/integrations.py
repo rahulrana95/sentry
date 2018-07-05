@@ -1,9 +1,8 @@
 from __future__ import absolute_import
 
-from sentry.tasks.base import instrumented_task, retry
-
-from sentry.models import ExternalIssue, Integration, User
+from sentry.models import ExternalIssue, Group, GroupLink, GroupStatus, Integration, User
 from sentry.integrations.exceptions import IntegrationError
+from sentry.tasks.base import instrumented_task, retry
 
 
 @instrumented_task(
@@ -18,7 +17,9 @@ def post_comment(external_issue_id, data, **kwargs):
     # sync Sentry comments to an external issue
     external_issue = ExternalIssue.objects.get(id=external_issue_id)
     integration = Integration.objects.get(id=external_issue.integration_id)
-    integration.get_installation().create_comment(external_issue.key, data['text'])
+    integration.get_installation(
+        organization_id=external_issue.organization_id).create_comment(
+        external_issue.key, data['text'])
 
 
 @instrumented_task(
@@ -49,3 +50,55 @@ def sync_assignee_outbound(external_issue_id, user_id, assign, **kwargs):
     else:
         user = User.objects.get(id=user_id)
     integration.get_installation().sync_assignee_outbound(external_issue, user, assign=assign)
+
+
+@instrumented_task(
+    name='sentry.tasks.integrations.sync_status_outbound',
+    queue='integrations',
+    default_retry_delay=60 * 5,
+    max_retries=5
+)
+@retry(exclude=(ExternalIssue.DoesNotExist, Integration.DoesNotExist))
+def sync_status_outbound(group_id, external_issue_id, **kwargs):
+    try:
+        group = Group.objects.filter(
+            id=group_id,
+            status__in=[GroupStatus.UNRESOLVED, GroupStatus.RESOLVED],
+        )[0]
+    except IndexError:
+        return
+
+    external_issue = ExternalIssue.objects.get(id=external_issue_id)
+    integration = Integration.objects.get(id=external_issue.integration_id)
+    installation = integration.get_installation(
+        organization_id=external_issue.organization_id,
+        project_id=group.project_id,
+    )
+    installation.sync_status_outbound(
+        external_issue, group.status == GroupStatus.RESOLVED, group.project_id
+    )
+
+
+@instrumented_task(
+    name='sentry.tasks.integrations.kick_off_status_syncs',
+    queue='integrations',
+    default_retry_delay=60 * 5,
+    max_retries=5
+)
+@retry()
+def kick_off_status_syncs(project_id, group_id, **kwargs):
+    # doing this in a task since this has to go in the event manager
+    # and didn't want to introduce additional queries there
+    external_issue_ids = GroupLink.objects.filter(
+        project_id=project_id,
+        group_id=group_id,
+        linked_type=GroupLink.LinkedType.issue,
+    ).values_list('linked_id', flat=True)
+
+    for external_issue_id in external_issue_ids:
+        sync_status_outbound.apply_async(
+            kwargs={
+                'group_id': group_id,
+                'external_issue_id': external_issue_id,
+            }
+        )

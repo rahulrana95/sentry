@@ -25,6 +25,7 @@ from sentry.tagstore.exceptions import (
 )
 from sentry.tagstore.types import TagKey, TagValue, GroupTagKey, GroupTagValue
 from sentry.utils import snuba
+from sentry.utils.dates import to_timestamp
 
 
 SEEN_COLUMN = 'timestamp'
@@ -288,15 +289,16 @@ class SnubaTagStorage(TagStorage):
         # NB we add release as a condition rather than a filter because
         # this method is already dealing with version strings rather than
         # release ids which would need to be translated by the snuba util.
-        key = 'tags[sentry:release]'
-        conditions = [[key, 'IN', versions]]
+        tag = 'sentry:release'
+        col = 'tags[{}]'.format(tag)
+        conditions = [[col, 'IN', versions]]
         aggregations = [
             ['count()', '', 'times_seen'],
             ['min', SEEN_COLUMN, 'first_seen'],
             ['max', SEEN_COLUMN, 'last_seen'],
         ]
 
-        result = snuba.query(start, end, ['project_id', key],
+        result = snuba.query(start, end, ['project_id', col],
                              conditions, filters, aggregations,
                              referrer='tagstore.get_release_tags')
 
@@ -305,7 +307,7 @@ class SnubaTagStorage(TagStorage):
             for value, data in six.iteritems(project_data):
                 values.append(
                     TagValue(
-                        key=key,
+                        key=tag,
                         value=value,
                         **fix_tag_value_data(data)
                     )
@@ -318,32 +320,24 @@ class SnubaTagStorage(TagStorage):
         filters = {
             'project_id': project_ids,
         }
-        or_conditions = [cond for cond in [
-            ('user_id', 'IN', [eu.ident for eu in event_users if eu.ident]),
-            ('email', 'IN', [eu.email for eu in event_users if eu.email]),
-            ('username', 'IN', [eu.username for eu in event_users if eu.username]),
-            ('ip_address', 'IN', [eu.ip_address for eu in event_users if eu.ip_address]),
-        ] if cond[2] != []]
-        conditions = [or_conditions]
-        aggregations = [['max', SEEN_COLUMN, 'seen']]
+        conditions = [
+            ['tags[sentry:user]', 'IN', filter(None, [eu.tag_value for eu in event_users])],
+        ]
+        aggregations = [['max', SEEN_COLUMN, 'last_seen']]
 
         result = snuba.query(start, end, ['issue'], conditions, filters,
-                             aggregations, limit=limit, orderby='-seen',
+                             aggregations, limit=limit, orderby='-last_seen',
                              referrer='tagstore.get_group_ids_for_users')
-        return result.keys()
+        return set(result.keys())
 
     def get_group_tag_values_for_users(self, event_users, limit=100):
         start, end = self.get_time_range()
         filters = {
             'project_id': [eu.project_id for eu in event_users]
         }
-        or_conditions = [cond for cond in [
-            ('user_id', 'IN', [eu.ident for eu in event_users if eu.ident]),
-            ('email', 'IN', [eu.email for eu in event_users if eu.email]),
-            ('username', 'IN', [eu.username for eu in event_users if eu.username]),
-            ('ip_address', 'IN', [eu.ip_address for eu in event_users if eu.ip_address]),
-        ] if cond[2] != []]
-        conditions = [or_conditions]
+        conditions = [
+            ['tags[sentry:user]', 'IN', filter(None, [eu.tag_value for eu in event_users])]
+        ]
         aggregations = [
             ['count()', '', 'times_seen'],
             ['min', SEEN_COLUMN, 'first_seen'],
@@ -380,6 +374,122 @@ class SnubaTagStorage(TagStorage):
                              referrer='tagstore.get_groups_user_counts')
         return defaultdict(int, {k: v for k, v in result.items() if v})
 
+    def get_tag_value_paginator(self, project_id, environment_id, key, query=None,
+            order_by='-last_seen'):
+        from sentry.api.paginator import SequencePaginator
+
+        if not order_by == '-last_seen':
+            raise ValueError("Unsupported order_by: %s" % order_by)
+
+        conditions = []
+        if query:
+            conditions.append(['tags_value', 'LIKE', '%{}%'.format(query)])
+
+        start, end = self.get_time_range()
+        results = snuba.query(
+            start=start,
+            end=end,
+            groupby=['tags_value'],
+            filter_keys={
+                'project_id': [project_id],
+                'environment': [environment_id],
+                'tags_key': [key],
+            },
+            aggregations=[
+                ['count()', '', 'times_seen'],
+                ['min', 'timestamp', 'first_seen'],
+                ['max', 'timestamp', 'last_seen'],
+            ],
+            conditions=conditions,
+            orderby=order_by,
+            # TODO: This means they can't actually paginate all TagValues.
+            limit=1000,
+        )
+
+        tag_values = [
+            TagValue(
+                key=key,
+                value=value,
+                **fix_tag_value_data(data)
+            ) for value, data in six.iteritems(results)
+        ]
+
+        desc = order_by.startswith('-')
+        score_field = order_by.lstrip('-')
+        return SequencePaginator(
+            [(int(to_timestamp(getattr(tv, score_field)) * 1000), tv) for tv in tag_values],
+            reverse=desc
+        )
+
+    def get_group_tag_value_iter(self, project_id, group_id, environment_id, key, callbacks=()):
+        start, end = self.get_time_range()
+        results = snuba.query(
+            start=start,
+            end=end,
+            groupby=['tags_value'],
+            filter_keys={
+                'project_id': [project_id],
+                'environment': [environment_id],
+                'tags_key': [key],
+                'issue': [group_id],
+            },
+            aggregations=[
+                ['count()', '', 'times_seen'],
+                ['min', 'timestamp', 'first_seen'],
+                ['max', 'timestamp', 'last_seen'],
+            ],
+            orderby='-first_seen',  # Closest thing to pre-existing `-id` order
+            # TODO: This means they can't actually iterate all GroupTagValues.
+            limit=1000,
+        )
+
+        group_tag_values = [
+            GroupTagValue(
+                group_id=group_id,
+                key=key,
+                value=value,
+                **fix_tag_value_data(data)
+            ) for value, data in six.iteritems(results)
+        ]
+
+        for cb in callbacks:
+            cb(group_tag_values)
+
+        return group_tag_values
+
+    def get_group_tag_value_paginator(self, project_id, group_id, environment_id, key,
+            order_by='-id'):
+        from sentry.api.paginator import SequencePaginator
+
+        if order_by in ('-last_seen', '-first_seen'):
+            pass
+        elif order_by == '-id':
+            # Snuba has no unique id per GroupTagValue so we'll substitute `-first_seen`
+            order_by = '-first_seen'
+        else:
+            raise ValueError("Unsupported order_by: %s" % order_by)
+
+        group_tag_values = self.get_group_tag_value_iter(
+            project_id, group_id, environment_id, key
+        )
+
+        desc = order_by.startswith('-')
+        score_field = order_by.lstrip('-')
+        return SequencePaginator(
+            [(int(to_timestamp(getattr(gtv, score_field)) * 1000), gtv) for gtv in group_tag_values],
+            reverse=desc
+        )
+
+    def get_group_tag_value_qs(self, project_id, group_id, environment_id, key, value=None):
+        # This method is not implemented because it is only used by the Django
+        # search backend.
+        raise NotImplementedError
+
+    def get_event_tag_qs(self, project_id, environment_id, key, value):
+        # This method is not implemented because it is only used by the Django
+        # search backend.
+        raise NotImplementedError
+
     def get_group_event_filter(self, project_id, group_id, environment_id, tags):
         start, end = self.get_time_range()
         filters = {
@@ -390,13 +500,16 @@ class SnubaTagStorage(TagStorage):
 
         conditions = [[['tags[{}]'.format(k), '=', v] for (k, v) in tags.items()]]
 
-        result = snuba.query(start, end, groupby=['event_id'], conditions=conditions,
-            filter_keys=filters, limit=1000, referrer='tagstore.get_group_event_filter')
+        result = snuba.raw_query(start, end, selected_columns=['event_id'],
+                                 conditions=conditions, orderby='-timestamp', filter_keys=filters,
+                                 limit=1000, referrer='tagstore.get_group_event_filter')
 
-        if not result:
+        event_id_set = set(row['event_id'] for row in result['data'])
+
+        if not event_id_set:
             return None
 
-        return {'event_id__in': set(result.keys())}
+        return {'event_id__in': event_id_set}
 
     def get_group_ids_for_search_filter(
             self, project_id, environment_id, tags, candidates=None, limit=1000):

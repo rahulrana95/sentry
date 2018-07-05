@@ -1,9 +1,11 @@
 import {isEqual} from 'lodash';
 import PropTypes from 'prop-types';
+import Raven from 'raven-js';
 import React from 'react';
 
 import {Client} from 'app/api';
 import {t} from 'app/locale';
+import AsyncComponentSearchInput from 'app/components/asyncComponentSearchInput';
 import LoadingError from 'app/components/loadingError';
 import LoadingIndicator from 'app/components/loadingIndicator';
 import PermissionDenied from 'app/views/permissionDenied';
@@ -193,6 +195,23 @@ class AsyncComponent extends React.Component {
     let endpoint = this.getEndpoint();
     if (!endpoint) return [];
     return [['data', endpoint, this.getEndpointParams()]];
+  }
+
+  renderSearchInput({onSearchSubmit, stateKey, ...other}) {
+    return (
+      <AsyncComponentSearchInput
+        onSearchSubmit={onSearchSubmit}
+        stateKey={stateKey}
+        api={this.api}
+        onSuccess={(data, jqXHR) => {
+          this.handleRequestSuccess({stateKey, data, jqXHR});
+        }}
+        onError={() => {
+          this.renderError(new Error('Error with AsyncComponentSearchInput'));
+        }}
+        {...other}
+      />
+    );
   }
 
   renderLoading() {

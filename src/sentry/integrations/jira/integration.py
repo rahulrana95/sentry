@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import logging
 from six.moves.urllib.parse import quote_plus
 
 from django.core.urlresolvers import reverse
@@ -10,9 +11,11 @@ from sentry.integrations import (
 )
 from sentry.integrations.exceptions import ApiUnauthorized, ApiError, IntegrationError
 from sentry.integrations.issues import IssueSyncMixin
+from sentry.utils.http import absolute_uri
 
 from .client import JiraApiClient
 
+logger = logging.getLogger('sentry.integrations.jira')
 
 alert_link = {
     'text': 'Visit the **Atlassian Marketplace** to install this integration.',
@@ -53,12 +56,28 @@ class JiraIntegration(Integration, IssueSyncMixin):
                 'help': _('Declares what the linked JIRA ticket workflow status should be transitioned to when the Sentry issue is resolved.'),
             },
             {
+                'name': 'unresolve_status',
+                'type': 'choice',
+                'allowEmpty': True,
+                'label': _('JIRA Un-Resolved Status'),
+                'placeholder': _('Select a Status'),
+                'help': _('Declares what the linked JIRA ticket workflow status should be transitioned to when the Sentry issue is unresolved.'),
+            },
+            {
                 'name': 'resolve_when',
                 'type': 'choice',
                 'allowEmpty': True,
                 'label': _('Resolve in Sentry When'),
                 'placeholder': _('Select a Status'),
                 'help': _('When a JIRA ticket is transitioned to this status, trigger resolution of the Sentry issue.'),
+            },
+            {
+                'name': 'unresolve_when',
+                'type': 'choice',
+                'allowEmpty': True,
+                'label': _('Un-Resolve in Sentry When'),
+                'placeholder': _('Select a Status'),
+                'help': _('When a JIRA ticket is transitioned to this status, mark the Sentry issue as unresolved.'),
             },
             {
                 'name': 'sync_comments',
@@ -86,12 +105,16 @@ class JiraIntegration(Integration, IssueSyncMixin):
             statuses = [(c['id'], c['name']) for c in client.get_valid_statuses()]
             configuration[0]['choices'] = statuses
             configuration[1]['choices'] = statuses
+            configuration[2]['choices'] = statuses
+            configuration[3]['choices'] = statuses
         except ApiError:
             # TODO(epurkhsier): Maybe disabling the inputs for the resolve
             # statuses is a little heavy handed. Is there something better we
             # can fall back to?
             configuration[0]['disabled'] = True
             configuration[1]['disabled'] = True
+            configuration[2]['disabled'] = True
+            configuration[3]['disabled'] = True
 
         return configuration
 
@@ -126,6 +149,20 @@ class JiraIntegration(Integration, IssueSyncMixin):
                 field['url'] = autocomplete_url
                 field['type'] = 'select'
         return fields
+
+    def get_group_description(self, group, event, **kwargs):
+        output = [
+            absolute_uri(group.get_absolute_url()),
+        ]
+        body = self.get_group_body(group, event)
+        if body:
+            output.extend([
+                '',
+                '{code}',
+                body,
+                '{code}',
+            ])
+        return '\n'.join(output)
 
     def get_client(self):
         return JiraApiClient(
@@ -406,6 +443,53 @@ class JiraIntegration(Integration, IssueSyncMixin):
             'description': issue['fields']['description'],
             'key': issue_key,
         }
+
+    def sync_assignee_outbound(self, external_issue, user, assign=True, **kwargs):
+        """
+        Propagate a sentry issue's assignee to a jira issue's assignee
+        """
+        client = self.get_client()
+
+        jira_user = None
+        if assign:
+            for ue in user.emails.filter(is_verified=True):
+                try:
+                    res = client.search_users_for_issue(external_issue.key, ue.email)
+                except (ApiUnauthorized, ApiError):
+                    continue
+                try:
+                    jira_user = [
+                        r for r in res if r['emailAddress'] == ue.email
+                    ][0]
+                except IndexError:
+                    pass
+                else:
+                    break
+
+            if jira_user is None:
+                # TODO(jess): do we want to email people about these types of failures?
+                logger.info(
+                    'jira.assignee-not-found',
+                    extra={
+                        'integration_id': external_issue.integration_id,
+                        'user_id': user.id,
+                        'issue_key': external_issue.key,
+                    }
+                )
+                return
+
+        try:
+            client.assign_issue(external_issue.key, jira_user and jira_user['name'])
+        except (ApiUnauthorized, ApiError):
+            # TODO(jess): do we want to email people about these types of failures?
+            logger.info(
+                'jira.failed-to-assign',
+                extra={
+                    'integration_id': external_issue.integration_id,
+                    'user_id': user.id,
+                    'issue_key': external_issue.key,
+                }
+            )
 
 
 class JiraIntegrationProvider(IntegrationProvider):

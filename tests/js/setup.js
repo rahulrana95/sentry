@@ -9,6 +9,11 @@ import PropTypes from 'prop-types';
 import ConfigStore from 'app/stores/configStore';
 import theme from 'app/utils/theme';
 
+import RoleList from './fixtures/roleList';
+import Release from './fixtures/release';
+import {AsanaPlugin, AsanaCreate, AsanaAutocomplete} from './fixtures/asana';
+import {VstsPlugin, VstsCreate} from './fixtures/vsts-old';
+
 jest.mock('lodash/debounce', () => jest.fn(fn => fn));
 jest.mock('app/utils/recreateRoute');
 jest.mock('app/translations');
@@ -17,7 +22,11 @@ jest.mock('scroll-to-element', () => {});
 jest.mock('react-router', () => {
   const ReactRouter = require.requireActual('react-router');
   return {
+    IndexRedirect: ReactRouter.IndexRedirect,
+    IndexRoute: ReactRouter.IndexRoute,
     Link: ReactRouter.Link,
+    Redirect: ReactRouter.Redirect,
+    Route: ReactRouter.Route,
     withRouter: ReactRouter.withRouter,
     browserHistory: {
       push: jest.fn(),
@@ -30,6 +39,13 @@ jest.mock('react-lazyload', () => {
   const LazyLoadMock = ({children}) => children;
   return LazyLoadMock;
 });
+
+jest.mock('raven-js', () => ({
+  captureMessage: jest.fn(),
+  captureException: jest.fn(),
+  showReportDialog: jest.fn(),
+  lastEventId: jest.fn(),
+}));
 
 const constantDate = new Date(1508208080000); //National Pasta Day
 MockDate.set(constantDate);
@@ -45,7 +61,7 @@ window.tick = () => new Promise(resolve => setTimeout(resolve));
 
 window.$ = window.jQuery = jQuery;
 window.sinon = sinon;
-window.scrollTo = sinon.spy();
+window.scrollTo = jest.fn();
 
 // Instead of wrapping codeblocks in `setTimeout`
 window.tick = () => new Promise(res => setTimeout(res));
@@ -53,11 +69,6 @@ window.tick = () => new Promise(res => setTimeout(res));
 // emotion context broadcast
 const broadcast = createBroadcast(theme);
 
-window.Raven = {
-  captureMessage: sinon.spy(),
-  captureException: sinon.spy(),
-  lastEventId: sinon.spy(),
-};
 window.TestStubs = {
   // react-router's 'router' context
   router: (params = {}) => ({
@@ -79,6 +90,14 @@ window.TestStubs = {
     pathame: '/mock-pathname/',
     ...params,
   }),
+
+  routes: () => [
+    {path: '/'},
+    {path: '/:orgId/'},
+    {name: 'this should be skipped'},
+    {path: '/organizations/:orgId/'},
+    {path: 'api-keys/', name: 'API Key'},
+  ],
 
   routerProps: (params = {}) => ({
     location: TestStubs.location(),
@@ -487,6 +506,7 @@ window.TestStubs = {
       canAdd: true,
       canAddProject: false,
       config: [],
+      features: [],
       setupDialog: {
         url: '/github-integration-setup-uri/',
         width: 100,
@@ -518,6 +538,9 @@ window.TestStubs = {
       provider: {
         name: 'GitHub',
         key: 'github',
+        canAdd: true,
+        canAddProject: false,
+        features: [],
       },
       configOrganization: [],
       configProject: [],
@@ -565,6 +588,7 @@ window.TestStubs = {
     user: TestStubs.User(),
     ...params,
   }),
+
   Members: () => [
     TestStubs.Member(),
     {
@@ -854,6 +878,10 @@ window.TestStubs = {
     };
   },
 
+  Release,
+
+  RoleList,
+
   Searches: params => [
     {
       name: 'Needs Triage',
@@ -1041,13 +1069,22 @@ window.TestStubs = {
     ...params,
   }),
 
-  UserReport: () => ({
+  UserFeedback: () => ({
     id: '123',
     name: 'Lyn',
     email: 'lyn@sentry.io',
     comments: 'Something bad happened',
     issue: TestStubs.Group(),
   }),
+
+  /**
+   * Plugins
+   */
+  AsanaPlugin,
+  AsanaCreate,
+  AsanaAutocomplete,
+  VstsPlugin,
+  VstsCreate,
 };
 
 // this is very commonly used, so expose it globally

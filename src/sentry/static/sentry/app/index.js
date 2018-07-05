@@ -124,6 +124,7 @@ export default {
     BarChart: require('app/components/barChart').default,
     i18n: il8n,
     ConfigStore: require('app/stores/configStore').default,
+    Confirm: require('app/components/confirm').default,
     Count: require('app/components/count').default,
     DateTime: require('app/components/dateTime').default,
     DropdownLink: require('app/components/dropdownLink').default,
@@ -141,6 +142,7 @@ export default {
     ListLink: require('app/components/listLink').default,
     MenuItem: require('app/components/menuItem').default,
     NarrowLayout: require('app/components/narrowLayout').default,
+    OrganizationAuth: require('app/views/settings/organizationAuth').default,
     OrganizationHomeContainer: require('app/components/organizations/homeContainer')
       .default,
     OrganizationsLoader: require('app/components/organizations/organizationsLoader')

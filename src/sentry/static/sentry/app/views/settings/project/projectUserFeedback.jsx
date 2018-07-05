@@ -1,5 +1,6 @@
 import PropTypes from 'prop-types';
 import React from 'react';
+import Raven from 'raven-js';
 import styled from 'react-emotion';
 
 import {t} from 'app/locale';
@@ -21,7 +22,7 @@ const TextBlockNoMargin = styled(TextBlock)`
   margin-bottom: 0;
 `;
 
-class ProjectUserReportSettings extends AsyncView {
+class ProjectUserFeedbackSettings extends AsyncView {
   static propTypes = {
     setProjectNavSection: PropTypes.func,
   };
@@ -177,4 +178,4 @@ class ProjectUserReportSettings extends AsyncView {
   }
 }
 
-export default ProjectUserReportSettings;
+export default ProjectUserFeedbackSettings;

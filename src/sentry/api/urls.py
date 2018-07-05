@@ -19,6 +19,7 @@ from .endpoints.broadcast_details import BroadcastDetailsEndpoint
 from .endpoints.broadcast_index import BroadcastIndexEndpoint
 from .endpoints.catchall import CatchallEndpoint
 from .endpoints.chunk import ChunkUploadEndpoint
+from .endpoints.event_attachments import EventAttachmentsEndpoint
 from .endpoints.event_details import EventDetailsEndpoint
 from .endpoints.event_owners import EventOwnersEndpoint
 from .endpoints.event_apple_crash_report import EventAppleCrashReportEndpoint
@@ -54,6 +55,7 @@ from .endpoints.organization_auth_provider_details import OrganizationAuthProvid
 from .endpoints.organization_auth_provider_send_reminders import OrganizationAuthProviderSendRemindersEndpoint
 from .endpoints.organization_avatar import OrganizationAvatarEndpoint
 from .endpoints.organization_details import OrganizationDetailsEndpoint
+from .endpoints.organization_discover import OrganizationDiscoverEndpoint
 from .endpoints.organization_shortid import ShortIdLookupEndpoint
 from .endpoints.organization_eventid import EventIdLookupEndpoint
 from .endpoints.organization_slugs import SlugsUpdateEndpoint
@@ -348,6 +350,11 @@ urlpatterns = patterns(
         r'^organizations/(?P<organization_slug>[^\/]+)/$',
         OrganizationDetailsEndpoint.as_view(),
         name='sentry-api-0-organization-details'
+    ),
+    url(
+        r'^organizations/(?P<organization_slug>[^\/]+)/discover/$',
+        OrganizationDiscoverEndpoint.as_view(),
+        name='sentry-api-0-organization-discover'
     ),
     url(
         r'^organizations/(?P<organization_slug>[^\/]+)/shortids/(?P<short_id>[^\/]+)/$',
@@ -652,6 +659,12 @@ urlpatterns = patterns(
         ProjectEventDetailsEndpoint.as_view(),
         name='sentry-api-0-project-event-details'
     ),
+    url(
+        r'^projects/(?P<organization_slug>[^\/]+)/(?P<project_slug>[^\/]+)/events/(?P<event_id>[\w-]+)/attachments/$',
+        EventAttachmentsEndpoint.as_view(),
+        name='sentry-api-0-event-attachments'
+    ),
+
     url(
         r'^projects/(?P<organization_slug>[^\/]+)/(?P<project_slug>[^\/]+)/events/(?P<event_id>[\w-]+)/committers/$',
         EventFileCommittersEndpoint.as_view(),

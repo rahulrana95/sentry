@@ -325,11 +325,13 @@ class Release(Model):
         """
         Bind a list of commits to this release.
 
-        These should be ordered from newest to oldest.
-
         This will clear any existing commit log and replace it with the given
         commits.
         """
+
+        # Sort commit list in reverse order
+        commit_list.sort(key=lambda commit: commit.get('date_added'), reverse=True)
+
         # TODO(dcramer): this function could use some cleanup/refactoring as its a bit unwieldly
         from sentry.models import (
             Commit, CommitAuthor, Group, GroupLink, GroupResolution, GroupStatus,
@@ -476,6 +478,7 @@ class Release(Model):
 
         pr_ids_by_merge_commit = list(PullRequest.objects.filter(
             merge_commit_sha__in=[rc['commit__key'] for rc in release_commits],
+            organization_id=self.organization_id,
         ).values_list('id', flat=True))
 
         pull_request_resolutions = list(

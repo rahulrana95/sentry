@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+from collections import OrderedDict
 from contextlib import contextmanager
 from dateutil.parser import parse as parse_datetime
 from itertools import chain
@@ -43,9 +44,9 @@ _snuba_pool = urllib3.connectionpool.connection_from_url(
 )
 
 
-def query(start, end, groupby, conditions=None, filter_keys=None,
-          aggregations=None, rollup=None, arrayjoin=None, limit=None, orderby=None,
-          having=None, referrer=None, is_grouprelease=False):
+def raw_query(start, end, groupby=None, conditions=None, filter_keys=None,
+              aggregations=None, rollup=None, arrayjoin=None, limit=None, orderby=None,
+              having=None, referrer=None, is_grouprelease=False, selected_columns=None,):
     """
     Sends a query to snuba.
 
@@ -67,10 +68,10 @@ def query(start, end, groupby, conditions=None, filter_keys=None,
     groupby = groupby or []
     conditions = conditions or []
     having = having or []
-    aggregations = aggregations or [['count()', '', 'aggregate']]
+    aggregations = aggregations or []
     filter_keys = filter_keys or {}
+    selected_columns = selected_columns or []
 
-    # Forward and reverse translation maps from model ids to snuba keys, per column
     with timer('get_snuba_map'):
         forward, reverse = get_snuba_translators(filter_keys, is_grouprelease=is_grouprelease)
 
@@ -99,8 +100,9 @@ def query(start, end, groupby, conditions=None, filter_keys=None,
     # we need to fetch the issue definitions (issue -> fingerprint hashes)
     aggregate_cols = [a[1] for a in aggregations]
     condition_cols = [c[0] for c in flat_conditions(conditions)]
-    all_cols = groupby + aggregate_cols + condition_cols
+    all_cols = groupby + aggregate_cols + condition_cols + selected_columns
     get_issues = 'issue' in all_cols
+
     with timer('get_project_issues'):
         issues = get_project_issues(project_ids, filter_keys.get('issue')) if get_issues else None
 
@@ -117,6 +119,7 @@ def query(start, end, groupby, conditions=None, filter_keys=None,
         'arrayjoin': arrayjoin,
         'limit': limit,
         'orderby': orderby,
+        'selected_columns': selected_columns,
     }) if v is not None}
 
     headers = {}
@@ -141,15 +144,31 @@ def query(start, end, groupby, conditions=None, filter_keys=None,
         else:
             raise SnubaError('HTTP {}'.format(response.status))
 
+    # Forward and reverse translation maps from model ids to snuba keys, per column
+    body['data'] = [reverse(d) for d in body['data']]
+    return body
+
+
+def query(start, end, groupby, conditions=None, filter_keys=None,
+          aggregations=None, rollup=None, arrayjoin=None, limit=None, orderby=None,
+          having=None, referrer=None, is_grouprelease=False, selected_columns=None):
+
+    aggregations = aggregations or [['count()', '', 'aggregate']]
+    filter_keys = filter_keys or {}
+    selected_columns = selected_columns or []
+
+    body = raw_query(start, end, groupby=groupby, conditions=conditions, filter_keys=filter_keys,
+                     selected_columns=selected_columns, aggregations=aggregations, rollup=rollup, arrayjoin=arrayjoin,
+                     limit=limit, orderby=orderby, having=having, referrer=referrer, is_grouprelease=is_grouprelease)
+
     # Validate and scrub response, and translate snuba keys back to IDs
     aggregate_cols = [a[2] for a in aggregations]
-    expected_cols = set(groupby + aggregate_cols)
+    expected_cols = set(groupby + aggregate_cols + selected_columns)
     got_cols = set(c['name'] for c in body['meta'])
 
     assert expected_cols == got_cols
 
     with timer('process_result'):
-        body['data'] = [reverse(d) for d in body['data']]
         return nest_groups(body['data'], groupby, aggregate_cols)
 
 
@@ -167,12 +186,12 @@ def nest_groups(data, groups, aggregate_cols):
             return {c: data[0][c] for c in aggregate_cols} if data else None
     else:
         g, rest = groups[0], groups[1:]
-        inter = {}
+        inter = OrderedDict()
         for d in data:
             inter.setdefault(d[g], []).append(d)
-        return {
-            k: nest_groups(v, rest, aggregate_cols) for k, v in six.iteritems(inter)
-        }
+        return OrderedDict(
+            (k, nest_groups(v, rest, aggregate_cols)) for k, v in six.iteritems(inter)
+        )
 
 
 def is_condition(cond_or_list):
@@ -327,13 +346,16 @@ def get_project_issues(project_ids, issue_ids=None):
             tombstone.project_id, {}
         )[tombstone.hash] = tombstone.deleted_at
 
-    # return [(gid, [(hash, tombstone_date), (hash, tombstone_date), ...]), ...]
+    # return [(gid, pid, [(hash, tombstone_date), (hash, tombstone_date), ...]), ...]
     result = {}
     for h in hashes:
         tombstone_date = tombstones_by_project.get(h.project_id, {}).get(h.hash, None)
-        pair = (h.hash, tombstone_date.strftime("%Y-%m-%d %H:%M:%S") if tombstone_date else None)
-        result.setdefault(h.group_id, []).append(pair)
-    return list(result.items())[:MAX_ISSUES]
+        pair = (
+            h.hash,
+            tombstone_date.strftime("%Y-%m-%d %H:%M:%S") if tombstone_date else None
+        )
+        result.setdefault((h.group_id, h.project_id), []).append(pair)
+    return [k + (v,) for k, v in result.items()][:MAX_ISSUES]
 
 
 def get_related_project_ids(column, ids):
