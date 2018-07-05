@@ -9,12 +9,16 @@ const aggregationList = [
     external: ['count()', null, 'count'],
   },
   {
-    internal: 'uniq_message',
+    internal: 'uniq(message)',
     external: ['uniq', 'message', 'uniq_message'],
   },
   {
-    internal: 'topK_10_message',
+    internal: 'topK(10)(message)',
     external: ['topK(10)', 'message', 'topK_10_message'],
+  },
+  {
+    internal: 'avg(retention_days)',
+    external: ['avg', 'retention_days', 'avg_retention_days'],
   },
 ];
 
