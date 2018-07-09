@@ -18,6 +18,9 @@ import Aggregations from './aggregations';
 import Conditions from './conditions';
 import Result from './result';
 
+import {isValidCondition} from './conditions/utils';
+import {isValidAggregation} from './aggregations/utils';
+
 export default class OrganizationDiscover extends React.Component {
   static propTypes = {
     organization: SentryTypes.Organization,
@@ -37,6 +40,25 @@ export default class OrganizationDiscover extends React.Component {
   };
 
   runQuery = () => {
+    const {queryBuilder} = this.props;
+    // Strip any invalid conditions and aggregations
+    const {conditions, aggregations} = queryBuilder.getInternal();
+    const filteredConditions = conditions.filter(condition =>
+      isValidCondition(condition, queryBuilder.getColumns())
+    );
+
+    const filteredAggregations = aggregations.filter(aggregation =>
+      isValidAggregation(aggregation, queryBuilder.getColumns())
+    );
+
+    if (filteredConditions.length !== conditions.length) {
+      this.updateField('conditions', filteredConditions);
+    }
+
+    if (filteredAggregations.length !== aggregations.length) {
+      this.updateField('aggregations', filteredAggregations);
+    }
+
     this.props.queryBuilder.fetch().then(
       result => this.setState({result}),
       () => {
@@ -44,6 +66,31 @@ export default class OrganizationDiscover extends React.Component {
         this.setState({result: null});
       }
     );
+  };
+
+  getOrderbyOptions = () => {
+    const {queryBuilder} = this.props;
+    const columns = queryBuilder.getColumns();
+    const query = queryBuilder.getInternal();
+
+    // If there are aggregations, only allow summarized fields in orderby
+    const hasAggregations = query.aggregations.length > 0;
+    const hasFields = query.fields.length > 0;
+
+    return columns.reduce((acc, {name}) => {
+      if (hasAggregations) {
+        const isInvalidField = hasFields && !query.fields.includes(name);
+        if (!hasFields || isInvalidField) {
+          return acc;
+        }
+      }
+
+      return [
+        ...acc,
+        {value: name, label: `${name} asc`},
+        {value: `-${name}`, label: `${name} desc`},
+      ];
+    }, []);
   };
 
   render() {
@@ -57,14 +104,6 @@ export default class OrganizationDiscover extends React.Component {
       value: name,
       label: name,
     }));
-
-    const orderbyOptions = columns.reduce((acc, {name}) => {
-      return [
-        ...acc,
-        {value: name, label: `${name} asc`},
-        {value: `-${name}`, label: `${name} desc`},
-      ];
-    }, []);
 
     return (
       <div className="organization-home">
@@ -81,14 +120,14 @@ export default class OrganizationDiscover extends React.Component {
               value={query.projects}
               projects={this.props.organization.projects}
               onChange={val => this.updateField('projects', val)}
-              runQuery={this.runQuery}
+              onUpdate={this.runQuery}
             />
             <HeaderSeparator />
             <TimeRangeSelector
               start={query.start}
               end={query.end}
-              updateField={(name, val) => this.updateField(name, val)}
-              runQuery={this.runQuery}
+              onChange={(name, val) => this.updateField(name, val)}
+              onUpdate={this.runQuery}
             />
           </Flex>
         </Header>
@@ -109,7 +148,7 @@ export default class OrganizationDiscover extends React.Component {
             <SelectField
               name="orderby"
               label={t('Order By')}
-              options={orderbyOptions}
+              options={this.getOrderbyOptions()}
               value={query.orderby}
               onChange={val => this.updateField('orderby', val)}
             />
