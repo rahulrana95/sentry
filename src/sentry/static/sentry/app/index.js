@@ -174,7 +174,6 @@ export default {
     theme: require('app/utils/theme').default,
     utils: {
       errorHandler: require('app/utils/errorHandler').default,
-      getCookie: require('app/utils/getCookie').default,
       logging: require('app/utils/logging'),
     },
   },
